@@ -594,6 +594,24 @@ Camera3D::KeepAspect Camera3D::get_keep_aspect_mode() const {
 	return keep_aspect;
 }
 
+void Camera3D::set_oblique_near_plane(const Plane &p_plane) {
+	oblique_near_plane = p_plane;
+	RenderingServer::get_singleton()->camera_set_oblique_plane(camera, oblique_near_plane, use_oblique_near_plane);
+}
+
+Plane Camera3D::get_oblique_near_plane() const {
+	return oblique_near_plane;
+}
+
+void Camera3D::set_use_oblique_near_plane(bool p_enable) {
+	use_oblique_near_plane = p_enable;
+	RenderingServer::get_singleton()->camera_set_oblique_plane(camera, oblique_near_plane, use_oblique_near_plane);
+}
+
+bool Camera3D::is_using_oblique_near_plane() const {
+	return use_oblique_near_plane;
+}
+
 void Camera3D::set_doppler_tracking(DopplerTracking p_tracking) {
 	if (doppler_tracking == p_tracking) {
 		return;
@@ -655,6 +673,10 @@ void Camera3D::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_compositor"), &Camera3D::get_compositor);
 	ClassDB::bind_method(D_METHOD("set_keep_aspect_mode", "mode"), &Camera3D::set_keep_aspect_mode);
 	ClassDB::bind_method(D_METHOD("get_keep_aspect_mode"), &Camera3D::get_keep_aspect_mode);
+	ClassDB::bind_method(D_METHOD("set_oblique_near_plane", "plane"), &Camera3D::set_oblique_near_plane);
+	ClassDB::bind_method(D_METHOD("get_oblique_near_plane"), &Camera3D::get_oblique_near_plane);
+	ClassDB::bind_method(D_METHOD("set_use_oblique_near_plane", "enable"), &Camera3D::set_use_oblique_near_plane);
+	ClassDB::bind_method(D_METHOD("is_using_oblique_near_plane"), &Camera3D::is_using_oblique_near_plane);
 	ClassDB::bind_method(D_METHOD("set_doppler_tracking", "mode"), &Camera3D::set_doppler_tracking);
 	ClassDB::bind_method(D_METHOD("get_doppler_tracking"), &Camera3D::get_doppler_tracking);
 	ClassDB::bind_method(D_METHOD("get_frustum"), &Camera3D::_get_frustum);
@@ -670,6 +692,8 @@ void Camera3D::_bind_methods() {
 	//ClassDB::bind_method(D_METHOD("_camera_make_current"),&Camera::_camera_make_current );
 
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "keep_aspect", PROPERTY_HINT_ENUM, "Keep Width,Keep Height"), "set_keep_aspect_mode", "get_keep_aspect_mode");
+	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "use_oblique_near_plane"), "set_use_oblique_near_plane", "is_using_oblique_near_plane");
+	ADD_PROPERTY(PropertyInfo(Variant::PLANE, "oblique_near_plane"), "set_oblique_near_plane", "get_oblique_near_plane");
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "cull_mask", PROPERTY_HINT_LAYERS_3D_RENDER), "set_cull_mask", "get_cull_mask");
 	ADD_PROPERTY(PropertyInfo(Variant::OBJECT, "environment", PROPERTY_HINT_RESOURCE_TYPE, "Environment"), "set_environment", "get_environment");
 	ADD_PROPERTY(PropertyInfo(Variant::OBJECT, "attributes", PROPERTY_HINT_RESOURCE_TYPE, "CameraAttributesPractical,CameraAttributesPhysical"), "set_attributes", "get_attributes");

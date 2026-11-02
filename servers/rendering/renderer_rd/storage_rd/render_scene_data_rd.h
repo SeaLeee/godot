@@ -168,6 +168,12 @@ private:
 		float IBL_exposure_normalization; // Adjusts for baked exposure.
 		uint32_t camera_visible_layers;
 		float pass_alpha_multiplier;
+
+		// LULL (Playdead techniques, design/08): read from project settings every frame
+		float fog_max; // linear / exponential fog clamped to this amount: bright objects bleed through the fog
+		float shadow_noise; // 0 = Godot's interleaved gradient noise for the soft-shadow kernel rotation, 1 = blue noise
+		float normal_dither; // TPDF dither amplitude (in 1/255) added to the 8-bit normal_roughness buffer writes
+		float lull_pad;
 	};
 
 	struct UBODATA {

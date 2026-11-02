@@ -264,7 +264,31 @@ void light_compute(hvec3 N, hvec3 L, hvec3 V, half A, hvec3 light_color, bool is
 
 // Interleaved Gradient Noise
 // https://www.iryoku.com/next-generation-post-processing-in-call-of-duty-advanced-warfare
+// LULL (Playdead, GDC 2016 p29-31 / p46): IGN rotates the soft-shadow kernel with a visible structure (moire in
+// undersampled penumbrae). With rendering/lights_and_shadows/positional_shadow/blue_noise_kernel the rotation uses
+// blue noise instead: a high-pass filtered white-noise hash (no structure, every value represented in a small
+// neighbourhood), varied per frame so TAA integrates the samples.
+float lull_white(vec2 p) {
+	uvec2 q = uvec2(ivec2(floor(p)) + ivec2(65536));
+	uint h = q.x * 1597334677u ^ q.y * 3812015801u;
+	h = (h ^ (h >> 16u)) * 2246822519u;
+	h = (h ^ (h >> 13u)) * 3266489917u;
+	h ^= h >> 16u;
+	return float(h) * (1.0 / 4294967296.0);
+}
+
+float lull_blue_noise(vec2 p) {
+	float c = lull_white(p);
+	float n = lull_white(p + vec2(1.0, 0.0)) + lull_white(p - vec2(1.0, 0.0)) + lull_white(p + vec2(0.0, 1.0)) + lull_white(p - vec2(0.0, 1.0));
+	// high-pass, then remap the (roughly triangular) result back to a near-uniform [0, 1)
+	float hp = c - 0.25 * n + 0.5;
+	return clamp(hp * 0.5 + 0.25 + (c - 0.5) * 0.5, 0.0, 0.9999);
+}
+
 float quick_hash(vec2 pos) {
+	if (scene_data_block.data.shadow_noise > 0.5) {
+		return lull_blue_noise(pos);
+	}
 	const vec3 magic = vec3(0.06711056f, 0.00583715f, 52.9829189f);
 	return fract(magic.z * fract(dot(pos, magic.xy)));
 }
@@ -423,6 +447,29 @@ half get_omni_attenuation(float distance, float inv_range, float decay) {
 	return half(nd * pow(max(distance, 0.0001), -decay));
 }
 
+// LULL (Playdead "bounced light", GDC 2016 p76-77): a light with wrap w lights a surface with (N.L + w) / (1 + w)
+// (half lambert at w = 1), and a normal fade f blends that toward 1 (an ambient light). Done by bending the shading
+// normal toward the light so the regular BRDF sees exactly that cosine; bounce lights keep their specular at 0.
+hvec3 lull_light_normal(hvec3 N, vec3 L, vec4 shape) {
+	if (shape.x <= 0.0 && shape.y <= 0.0) {
+		return N;
+	}
+	float ndl = dot(vec3(N), L);
+	float t = (ndl + shape.x) / (1.0 + shape.x);
+	t = clamp(mix(t, 1.0, shape.y), 0.0, 1.0);
+	vec3 T = vec3(N) - L * ndl;
+	float tl = length(T);
+	if (tl > 1e-5) {
+		T /= tl;
+	} else {
+		T = vec3(0.0);
+	}
+	if (t <= 0.0) {
+		return hvec3(tl > 1e-5 ? T : -L);
+	}
+	return hvec3(normalize(L * t + T * sqrt(max(0.0, 1.0 - t * t))));
+}
+
 void light_process_omni(uint idx, vec3 vertex, hvec3 eye_vec, hvec3 normal, vec3 vertex_ddx, vec3 vertex_ddy, hvec3 f0, half roughness, half metallic, float taa_frame_count, hvec3 albedo, inout half alpha, vec2 screen_uv, hvec3 energy_compensation,
 #ifdef LIGHT_BACKLIGHT_USED
 		hvec3 backlight,
@@ -446,7 +493,13 @@ void light_process_omni(uint idx, vec3 vertex, hvec3 eye_vec, hvec3 normal, vec3
 	// Omni light attenuation.
 	vec3 light_rel_vec = omni_lights.data[idx].position - vertex;
 	float light_length = length(light_rel_vec);
-	half omni_attenuation = get_omni_attenuation(light_length, omni_lights.data[idx].inv_radius, omni_lights.data[idx].attenuation);
+	// LULL: an ellipsoid omni measures distance in its own scaled frame (one light fills a corridor or a window)
+	float att_length = light_length;
+	if (omni_lights.data[idx].lull_shape.z > 0.5) {
+		vec3 lv = -light_rel_vec;
+		att_length = length(vec3(dot(omni_lights.data[idx].lull_ell_x.xyz, lv), dot(omni_lights.data[idx].lull_ell_y.xyz, lv), dot(omni_lights.data[idx].lull_ell_z.xyz, lv)));
+	}
+	half omni_attenuation = get_omni_attenuation(att_length, omni_lights.data[idx].inv_radius, omni_lights.data[idx].attenuation);
 
 	// Compute size.
 	half size = half(0.0);
@@ -685,7 +738,7 @@ void light_process_omni(uint idx, vec3 vertex, hvec3 eye_vec, hvec3 normal, vec3
 	}
 
 	vec3 light_rel_vec_norm = light_rel_vec / light_length;
-	light_compute(normal, hvec3(light_rel_vec_norm), eye_vec, size, hvec3(color), false, omni_attenuation * shadow, f0, roughness, metallic, half(omni_lights.data[idx].specular_amount), albedo, alpha, screen_uv, energy_compensation,
+	light_compute(lull_light_normal(normal, light_rel_vec_norm, omni_lights.data[idx].lull_shape), hvec3(light_rel_vec_norm), eye_vec, size, hvec3(color), false, omni_attenuation * shadow, f0, roughness, metallic, half(omni_lights.data[idx].specular_amount), albedo, alpha, screen_uv, energy_compensation,
 #ifdef LIGHT_BACKLIGHT_USED
 			backlight,
 #endif
@@ -887,7 +940,7 @@ void light_process_spot(uint idx, vec3 vertex, hvec3 eye_vec, hvec3 normal, vec3
 		}
 	}
 
-	light_compute(normal, hvec3(light_rel_vec_norm), eye_vec, size, hvec3(color), false, spot_attenuation * shadow, f0, roughness, metallic, half(spot_lights.data[idx].specular_amount), albedo, alpha, screen_uv, energy_compensation,
+	light_compute(lull_light_normal(normal, vec3(light_rel_vec_norm), spot_lights.data[idx].lull_shape), hvec3(light_rel_vec_norm), eye_vec, size, hvec3(color), false, spot_attenuation * shadow, f0, roughness, metallic, half(spot_lights.data[idx].specular_amount), albedo, alpha, screen_uv, energy_compensation,
 #ifdef LIGHT_BACKLIGHT_USED
 			backlight,
 #endif

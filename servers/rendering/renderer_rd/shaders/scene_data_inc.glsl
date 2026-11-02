@@ -73,4 +73,10 @@ struct SceneData {
 	float IBL_exposure_normalization;
 	uint camera_visible_layers;
 	float pass_alpha_multiplier;
+
+	// LULL (Playdead techniques): see render_scene_data_rd.h
+	float fog_max;
+	float shadow_noise;
+	float normal_dither;
+	float lull_pad;
 };

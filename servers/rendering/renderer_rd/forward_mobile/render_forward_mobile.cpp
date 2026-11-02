@@ -854,7 +854,7 @@ void RenderForwardMobile::_render_scene(RenderDataRD *p_render_data, const Color
 		merge_transparent_pass = false;
 		using_subpass_post_process = false;
 	}
-	if (ce_has_post_transparent) {
+	if (ce_has_post_transparent || _has_compositor_effect(RS::COMPOSITOR_EFFECT_CALLBACK_TYPE_POST_TAA, p_render_data)) {
 		using_subpass_post_process = false;
 	}
 
@@ -1308,6 +1308,10 @@ void RenderForwardMobile::_render_scene(RenderDataRD *p_render_data, const Color
 
 		if (ce_has_post_transparent) {
 			_process_compositor_effects(RS::COMPOSITOR_EFFECT_CALLBACK_TYPE_POST_TRANSPARENT, p_render_data);
+		}
+		// no TAA in the mobile renderer: post-TAA effects run right after the post-transparent ones
+		if (_has_compositor_effect(RS::COMPOSITOR_EFFECT_CALLBACK_TYPE_POST_TAA, p_render_data)) {
+			_process_compositor_effects(RS::COMPOSITOR_EFFECT_CALLBACK_TYPE_POST_TAA, p_render_data);
 		}
 
 		// If we need extra effects we do this in its own pass

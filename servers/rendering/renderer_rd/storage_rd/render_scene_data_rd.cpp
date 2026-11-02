@@ -29,6 +29,7 @@
 /**************************************************************************/
 
 #include "render_scene_data_rd.h"
+#include "core/config/project_settings.h"
 #include "servers/rendering/renderer_rd/renderer_scene_render_rd.h"
 #include "servers/rendering/renderer_rd/storage_rd/light_storage.h"
 #include "servers/rendering/renderer_rd/storage_rd/texture_storage.h"
@@ -126,6 +127,15 @@ void RenderSceneDataRD::update_ubo(RID p_uniform_buffer, RS::ViewportDebugDraw p
 	RendererRD::MaterialStorage::store_soft_shadow_kernel(render_scene_render->soft_shadow_kernel_get(), ubo.soft_shadow_kernel);
 	ubo.camera_visible_layers = camera_visible_layers;
 	ubo.pass_alpha_multiplier = p_opaque_render_buffers && p_apply_alpha_multiplier ? 0.0f : 1.0f;
+
+	// LULL: Playdead's scene tweaks, live-tunable through project settings (see rendering_server.cpp)
+	{
+		static ProjectSettings *ps = ProjectSettings::get_singleton();
+		ubo.fog_max = ps ? float(ps->get_setting_with_override("rendering/environment/fog/max_amount")) : 1.0f;
+		ubo.shadow_noise = ps ? float(ps->get_setting_with_override("rendering/lights_and_shadows/positional_shadow/blue_noise_kernel")) : 0.0f;
+		ubo.normal_dither = ps ? float(ps->get_setting_with_override("rendering/anti_aliasing/quality/normal_buffer_dither")) : 0.0f;
+		ubo.lull_pad = 0.0f;
+	}
 
 	ubo.viewport_size[0] = p_screen_size.x;
 	ubo.viewport_size[1] = p_screen_size.y;

@@ -160,6 +160,13 @@ private:
 		float volumetric_fog_energy;
 		uint32_t bake_mode;
 		float projector_rect[4];
+		// LULL (Playdead "custom lights", GDC 2016 p75-78): x = half-lambert wrap, y = normal fade (0 = directional,
+		// 1 = ambient), z = 1 for an ellipsoid omni (the light's non-uniform scale shapes it), w unused.
+		float lull_shape[4];
+		// rows of the inverse (view-space basis * scaled light basis): distance in the ellipsoid's unit space
+		float lull_ell_x[4];
+		float lull_ell_y[4];
+		float lull_ell_z[4];
 	};
 
 	struct LightInstanceDepthSort {

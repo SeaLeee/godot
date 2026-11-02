@@ -29,6 +29,7 @@
 /**************************************************************************/
 
 #include "tone_mapper.h"
+#include "core/config/project_settings.h"
 #include "servers/rendering/renderer_rd/renderer_compositor_rd.h"
 #include "servers/rendering/renderer_rd/storage_rd/material_storage.h"
 #include "servers/rendering/renderer_rd/uniform_set_cache_rd.h"
@@ -128,6 +129,10 @@ void ToneMapper::tonemapper(RID p_source_color, RID p_dst_framebuffer, const Ton
 	} else if (p_settings.debanding_mode == TonemapSettings::DEBANDING_MODE_10_BIT) {
 		tonemap.push_constant.flags |= TONEMAP_FLAG_USE_10_BIT_DEBANDING;
 	}
+	// LULL (Playdead): triangular-PDF blue-noise dither instead of Iestyn's ordered RGB dither
+	if (p_settings.debanding_mode != TonemapSettings::DEBANDING_MODE_DISABLED && int(GLOBAL_GET_CACHED(int, "rendering/anti_aliasing/quality/debanding_mode")) == 1) {
+		tonemap.push_constant.flags |= TONEMAP_FLAG_USE_TPDF_DEBANDING;
+	}
 	tonemap.push_constant.pixel_size[0] = 1.0 / p_settings.texture_size.x;
 	tonemap.push_constant.pixel_size[1] = 1.0 / p_settings.texture_size.y;
 
@@ -215,6 +220,10 @@ void ToneMapper::tonemapper(RD::DrawListID p_subpass_draw_list, RID p_source_col
 		tonemap.push_constant.flags |= TONEMAP_FLAG_USE_8_BIT_DEBANDING;
 	} else if (p_settings.debanding_mode == TonemapSettings::DEBANDING_MODE_10_BIT) {
 		tonemap.push_constant.flags |= TONEMAP_FLAG_USE_10_BIT_DEBANDING;
+	}
+	// LULL (Playdead): triangular-PDF blue-noise dither instead of Iestyn's ordered RGB dither
+	if (p_settings.debanding_mode != TonemapSettings::DEBANDING_MODE_DISABLED && int(GLOBAL_GET_CACHED(int, "rendering/anti_aliasing/quality/debanding_mode")) == 1) {
+		tonemap.push_constant.flags |= TONEMAP_FLAG_USE_TPDF_DEBANDING;
 	}
 	tonemap.push_constant.luminance_multiplier = p_settings.luminance_multiplier;
 

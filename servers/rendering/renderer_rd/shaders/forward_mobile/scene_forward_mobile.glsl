@@ -1043,6 +1043,9 @@ hvec4 fog_process(vec3 vertex) {
 		fog_amount = max(vfog_amount, fog_amount);
 	}
 
+	// LULL (Playdead): fog clamped to a maximum so bright objects bleed through
+	fog_amount = min(fog_amount, scene_data_block.data.fog_max);
+
 	return hvec4(fog_color, fog_amount);
 }
 

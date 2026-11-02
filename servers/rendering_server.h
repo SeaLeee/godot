@@ -557,6 +557,8 @@ public:
 		LIGHT_PARAM_SHADOW_BLUR,
 		LIGHT_PARAM_TRANSMITTANCE_BIAS,
 		LIGHT_PARAM_INTENSITY,
+		LIGHT_PARAM_LULL_WRAP, // LULL: half-lambert wrap (Playdead bounce light)
+		LIGHT_PARAM_LULL_NORMAL_FADE, // LULL: fade the surface normal out (0 = directional, 1 = ambient)
 		LIGHT_PARAM_MAX
 	};
 
@@ -919,6 +921,8 @@ public:
 	virtual void camera_set_camera_attributes(RID p_camera, RID p_camera_attributes) = 0;
 	virtual void camera_set_compositor(RID p_camera, RID p_compositor) = 0;
 	virtual void camera_set_use_vertical_aspect(RID p_camera, bool p_enable) = 0;
+	// LULL: oblique near-plane clipping (Lengyel) for planar reflection cameras (Playdead water, GDC 2016 p133)
+	virtual void camera_set_oblique_plane(RID p_camera, const Plane &p_world_plane, bool p_enable) = 0;
 
 	/* VIEWPORT API */
 
@@ -1205,6 +1209,9 @@ public:
 		COMPOSITOR_EFFECT_CALLBACK_TYPE_POST_SKY,
 		COMPOSITOR_EFFECT_CALLBACK_TYPE_PRE_TRANSPARENT,
 		COMPOSITOR_EFFECT_CALLBACK_TYPE_POST_TRANSPARENT,
+		// LULL: after temporal AA / upscaling, before tonemapping. Playdead's order: TAA feeds bloom, and the final
+		// pass (chromatic aberration, brightness curve, dither) must not be averaged away by the TAA history.
+		COMPOSITOR_EFFECT_CALLBACK_TYPE_POST_TAA,
 		COMPOSITOR_EFFECT_CALLBACK_TYPE_MAX,
 		COMPOSITOR_EFFECT_CALLBACK_TYPE_ANY = -1,
 	};

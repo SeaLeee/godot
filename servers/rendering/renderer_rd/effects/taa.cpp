@@ -29,9 +29,11 @@
 /**************************************************************************/
 
 #include "taa.h"
+#include "core/config/project_settings.h"
 #include "servers/rendering/renderer_rd/effects/copy_effects.h"
 #include "servers/rendering/renderer_rd/storage_rd/material_storage.h"
 #include "servers/rendering/renderer_rd/uniform_set_cache_rd.h"
+#include "servers/rendering/rendering_server_globals.h"
 
 using namespace RendererRD;
 
@@ -47,7 +49,7 @@ TAA::~TAA() {
 	taa_shader.version_free(shader_version);
 }
 
-void TAA::resolve(RID p_frame, RID p_temp, RID p_depth, RID p_velocity, RID p_prev_velocity, RID p_history, Size2 p_resolution, float p_z_near, float p_z_far) {
+void TAA::resolve(RID p_frame, RID p_temp, RID p_depth, RID p_velocity, RID p_prev_velocity, RID p_history, Size2 p_resolution, float p_z_near, float p_z_far, bool p_motion_pass) {
 	UniformSetCacheRD *uniform_set_cache = UniformSetCacheRD::get_singleton();
 	ERR_FAIL_NULL(uniform_set_cache);
 	MaterialStorage *material_storage = MaterialStorage::get_singleton();
@@ -64,6 +66,18 @@ void TAA::resolve(RID p_frame, RID p_temp, RID p_depth, RID p_velocity, RID p_pr
 	push_constant.resolution_height = p_resolution.height;
 	push_constant.disocclusion_threshold = 2.5f; // If velocity changes by less than this amount of texels we can retain the accumulation buffer.
 	push_constant.disocclusion_scale = 0.01f; // Scale the weight of this pixel calculated as (change in velocity - threshold) * scale.
+	{
+		// LULL engine patch: resolve parameters are read every frame so they can be tuned live (in-game debug panel).
+		ProjectSettings *ps = ProjectSettings::get_singleton();
+		push_constant.mode = float(int(ps->get_setting_with_override("rendering/anti_aliasing/quality/taa_resolve_mode")));
+		push_constant.feedback_min = float(ps->get_setting_with_override("rendering/anti_aliasing/quality/taa_feedback_min"));
+		push_constant.feedback_max = float(ps->get_setting_with_override("rendering/anti_aliasing/quality/taa_feedback_max"));
+		push_constant.motion_blur = float(ps->get_setting_with_override("rendering/anti_aliasing/quality/taa_motion_blur"));
+		push_constant.frame = float(RSG::rasterizer->get_frame_number() % 4096);
+		if (p_motion_pass) {
+			push_constant.mode = 2.0f;
+		}
+	}
 
 	RD::ComputeListID compute_list = RD::get_singleton()->compute_list_begin();
 	RD::get_singleton()->compute_list_bind_compute_pipeline(compute_list, pipeline);
@@ -113,10 +127,24 @@ void TAA::process(Ref<RenderSceneBuffersRD> p_render_buffers, RD::DataFormat p_f
 			RID depth_texture = p_render_buffers->get_depth_texture(v);
 			RID taa_temp = p_render_buffers->get_texture_slice(SNAME("taa"), SNAME("temp"), v, 0);
 			resolve(internal_texture, taa_temp, depth_texture, velocity_buffer, taa_prev_velocity, taa_history, Size2(internal_size.x, internal_size.y), p_z_near, p_z_far);
-			copy_effects->copy_to_rect(taa_temp, internal_texture, Rect2(0, 0, internal_size.x, internal_size.y));
+			// LULL engine patch: the history only ever receives the temporal result; Playdead's velocity motion blur
+			// (mode 2) goes to the screen only, so it never smears into later frames.
+			copy_effects->copy_to_rect(taa_temp, taa_history, Rect2(0, 0, internal_size.x, internal_size.y));
+			float motion_blur = float(ProjectSettings::get_singleton()->get_setting_with_override("rendering/anti_aliasing/quality/taa_motion_blur"));
+			if (motion_blur > 0.0f) {
+				if (!p_render_buffers->has_texture(SNAME("taa"), SNAME("blur"))) {
+					p_render_buffers->create_texture(SNAME("taa"), SNAME("blur"), p_format, RD::TEXTURE_USAGE_SAMPLING_BIT | RD::TEXTURE_USAGE_STORAGE_BIT);
+				}
+				RID taa_blur = p_render_buffers->get_texture_slice(SNAME("taa"), SNAME("blur"), v, 0);
+				resolve(internal_texture, taa_blur, depth_texture, velocity_buffer, taa_prev_velocity, taa_temp, Size2(internal_size.x, internal_size.y), p_z_near, p_z_far, true);
+				copy_effects->copy_to_rect(taa_blur, internal_texture, Rect2(0, 0, internal_size.x, internal_size.y));
+			} else {
+				copy_effects->copy_to_rect(taa_temp, internal_texture, Rect2(0, 0, internal_size.x, internal_size.y));
+			}
+		} else {
+			copy_effects->copy_to_rect(internal_texture, taa_history, Rect2(0, 0, internal_size.x, internal_size.y));
 		}
 
-		copy_effects->copy_to_rect(internal_texture, taa_history, Rect2(0, 0, internal_size.x, internal_size.y));
 		copy_effects->copy_to_rect(velocity_buffer, taa_prev_velocity, Rect2(0, 0, target_size.x, target_size.y));
 	}
 

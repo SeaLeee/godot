@@ -901,6 +901,36 @@ void LightStorage::update_light_buffers(RenderDataRD *p_render_data, const Paged
 		light_data.position[1] = pos.y;
 		light_data.position[2] = pos.z;
 
+		// LULL: Playdead bounce-light controls and ellipsoid omni lights
+		{
+			light_data.lull_shape[0] = light->param[RS::LIGHT_PARAM_LULL_WRAP];
+			light_data.lull_shape[1] = light->param[RS::LIGHT_PARAM_LULL_NORMAL_FADE];
+			light_data.lull_shape[2] = 0.0f;
+			light_data.lull_shape[3] = 0.0f;
+			Vector3 sc = light_transform.basis.get_scale().abs();
+			float smax = MAX(sc.x, MAX(sc.y, sc.z));
+			float smin = MIN(sc.x, MIN(sc.y, sc.z));
+			Basis inv = Basis();
+			if (type == RS::LIGHT_OMNI && smin > 1e-4 && smax / smin > 1.01f) {
+				// distance measured in the light's own (scaled) frame, normalised so the longest axis keeps the range
+				Basis m = inverse_transform.basis * light_transform.basis;
+				inv = (m * (1.0f / smax)).inverse();
+				light_data.lull_shape[2] = 1.0f;
+			}
+			light_data.lull_ell_x[0] = inv.rows[0].x;
+			light_data.lull_ell_x[1] = inv.rows[0].y;
+			light_data.lull_ell_x[2] = inv.rows[0].z;
+			light_data.lull_ell_x[3] = 0.0f;
+			light_data.lull_ell_y[0] = inv.rows[1].x;
+			light_data.lull_ell_y[1] = inv.rows[1].y;
+			light_data.lull_ell_y[2] = inv.rows[1].z;
+			light_data.lull_ell_y[3] = 0.0f;
+			light_data.lull_ell_z[0] = inv.rows[2].x;
+			light_data.lull_ell_z[1] = inv.rows[2].y;
+			light_data.lull_ell_z[2] = inv.rows[2].z;
+			light_data.lull_ell_z[3] = 0.0f;
+		}
+
 		Vector3 direction = inverse_transform.basis.xform(light_transform.basis.xform(Vector3(0, 0, -1))).normalized();
 
 		light_data.direction[0] = direction.x;
@@ -1030,7 +1060,13 @@ void LightStorage::update_light_buffers(RenderDataRD *p_render_data, const Paged
 		light_instance->cull_mask = light->cull_mask;
 
 		// hook for subclass to do further processing.
-		RendererSceneRenderRD::get_singleton()->setup_added_light(type, light_transform, radius, spot_angle);
+		// LULL: an ellipsoid omni reaches range * its largest scale; cluster it with that reach
+		float cluster_radius = radius;
+		if (type == RS::LIGHT_OMNI && light_data.lull_shape[2] > 0.5f) {
+			Vector3 sc = light_transform.basis.get_scale().abs();
+			cluster_radius = radius * MAX(sc.x, MAX(sc.y, sc.z));
+		}
+		RendererSceneRenderRD::get_singleton()->setup_added_light(type, light_transform, cluster_radius, spot_angle);
 
 		r_positional_light_count++;
 	}

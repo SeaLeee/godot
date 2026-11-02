@@ -48,13 +48,20 @@ private:
 		float resolution_height;
 		float disocclusion_threshold;
 		float disocclusion_scale;
+		// LULL engine patch: Playdead-style resolve (INSIDE, GDC 2016 "Temporal Reprojection Anti-Aliasing in INSIDE")
+		float mode; // 0 = Godot resolve, 1 = Playdead resolve
+		float feedback_min; // history weight under large luminance change (Playdead: 0.88)
+		float feedback_max; // history weight when stable (Playdead: 0.97)
+		float motion_blur; // velocity motion-blur scale (0 = off), with Playdead's velocity "trust"
+		float frame; // noise seed
+		float pad[3];
 	};
 
 	TaaResolveShaderRD taa_shader;
 	RID shader_version;
 	RID pipeline;
 
-	void resolve(RID p_frame, RID p_temp, RID p_depth, RID p_velocity, RID p_prev_velocity, RID p_history, Size2 p_resolution, float p_z_near, float p_z_far);
+	void resolve(RID p_frame, RID p_temp, RID p_depth, RID p_velocity, RID p_prev_velocity, RID p_history, Size2 p_resolution, float p_z_near, float p_z_far, bool p_motion_pass = false);
 };
 
 } // namespace RendererRD

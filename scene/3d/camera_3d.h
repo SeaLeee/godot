@@ -74,6 +74,8 @@ private:
 	real_t v_offset = 0.0;
 	real_t h_offset = 0.0;
 	KeepAspect keep_aspect = KEEP_HEIGHT;
+	Plane oblique_near_plane = Plane(Vector3(0, 1, 0), 0);
+	bool use_oblique_near_plane = false;
 
 	RID camera;
 	RID scenario_id;
@@ -194,6 +196,12 @@ public:
 
 	void set_keep_aspect_mode(KeepAspect p_aspect);
 	KeepAspect get_keep_aspect_mode() const;
+
+	// LULL: oblique near plane (planar reflections clip at the mirror plane)
+	void set_oblique_near_plane(const Plane &p_plane);
+	Plane get_oblique_near_plane() const;
+	void set_use_oblique_near_plane(bool p_enable);
+	bool is_using_oblique_near_plane() const;
 
 	void set_v_offset(real_t p_offset);
 	real_t get_v_offset() const;

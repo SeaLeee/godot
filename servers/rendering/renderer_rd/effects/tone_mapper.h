@@ -66,6 +66,7 @@ private:
 		TONEMAP_FLAG_USE_8_BIT_DEBANDING = (1 << 5),
 		TONEMAP_FLAG_USE_10_BIT_DEBANDING = (1 << 6),
 		TONEMAP_FLAG_CONVERT_TO_SRGB = (1 << 7),
+		TONEMAP_FLAG_USE_TPDF_DEBANDING = (1 << 8), // LULL: Playdead TPDF blue-noise dither
 	};
 
 	struct TonemapPushConstant {

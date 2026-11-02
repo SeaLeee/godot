@@ -2492,6 +2492,11 @@ void RenderForwardClustered::_render_scene(RenderDataRD *p_render_data, const Co
 		}
 	}
 
+	{
+		RENDER_TIMESTAMP("Process Post TAA Compositor Effects");
+		_process_compositor_effects(RS::COMPOSITOR_EFFECT_CALLBACK_TYPE_POST_TAA, p_render_data);
+	}
+
 	if (rb_data.is_valid()) {
 		_debug_draw_cluster(rb);
 

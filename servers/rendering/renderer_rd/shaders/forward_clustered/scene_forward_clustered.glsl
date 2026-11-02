@@ -1094,6 +1094,10 @@ vec4 fog_process(vec3 vertex) {
 		fog_amount = max(vfog_amount, fog_amount);
 	}
 
+	// LULL (Playdead): the fog is clamped to a maximum, so bright objects (head lights, lamps, lit windows) bleed through
+	// even the deepest fog instead of vanishing into it
+	fog_amount = min(fog_amount, scene_data_block.data.fog_max);
+
 	return vec4(fog_color, fog_amount);
 }
 
@@ -2769,6 +2773,15 @@ void fragment_shader(in SceneData scene_data) {
 
 #ifdef MODE_RENDER_NORMAL_ROUGHNESS
 	normal_roughness_output_buffer = vec4(encode24(normal) * 0.5 + 0.5, roughness);
+	// LULL (Playdead, GDC 2016 p72): normals go into an 8-bit target; quantised normals draw contour lines into
+	// screen-space reflections and specular highlights. TPDF-dither the normal channels (roughness also carries the
+	// static / dynamic flag and is left alone).
+	if (scene_data_block.data.normal_dither > 0.0) {
+		vec2 dp = gl_FragCoord.xy + vec2(scene_data_block.data.taa_frame_count * 5.588238);
+		vec3 na = fract(sin(vec3(dot(dp, vec2(12.9898, 78.233)), dot(dp, vec2(39.3468, 11.135)), dot(dp, vec2(73.156, 52.235)))) * 43758.5453);
+		vec3 nb = fract(sin(vec3(dot(dp, vec2(26.651, 44.877)), dot(dp, vec2(91.323, 17.411)), dot(dp, vec2(15.789, 63.117)))) * 43758.5453);
+		normal_roughness_output_buffer.xyz += (na + nb - 1.0) * (scene_data_block.data.normal_dither / 255.0);
+	}
 
 	// We encode the dynamic static into roughness.
 	// Values over 0.5 are dynamic, under 0.5 are static.

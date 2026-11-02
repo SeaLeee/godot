@@ -2560,6 +2560,8 @@ void RenderingServer::_bind_methods() {
 	BIND_ENUM_CONSTANT(LIGHT_PARAM_SHADOW_BLUR);
 	BIND_ENUM_CONSTANT(LIGHT_PARAM_TRANSMITTANCE_BIAS);
 	BIND_ENUM_CONSTANT(LIGHT_PARAM_INTENSITY);
+	BIND_ENUM_CONSTANT(LIGHT_PARAM_LULL_WRAP);
+	BIND_ENUM_CONSTANT(LIGHT_PARAM_LULL_NORMAL_FADE);
 	BIND_ENUM_CONSTANT(LIGHT_PARAM_MAX);
 
 	BIND_ENUM_CONSTANT(LIGHT_BAKE_DISABLED);
@@ -2817,6 +2819,7 @@ void RenderingServer::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("camera_set_camera_attributes", "camera", "effects"), &RenderingServer::camera_set_camera_attributes);
 	ClassDB::bind_method(D_METHOD("camera_set_compositor", "camera", "compositor"), &RenderingServer::camera_set_compositor);
 	ClassDB::bind_method(D_METHOD("camera_set_use_vertical_aspect", "camera", "enable"), &RenderingServer::camera_set_use_vertical_aspect);
+	ClassDB::bind_method(D_METHOD("camera_set_oblique_plane", "camera", "world_plane", "enable"), &RenderingServer::camera_set_oblique_plane);
 
 	/* VIEWPORT */
 
@@ -3018,6 +3021,7 @@ void RenderingServer::_bind_methods() {
 	BIND_ENUM_CONSTANT(COMPOSITOR_EFFECT_CALLBACK_TYPE_POST_SKY);
 	BIND_ENUM_CONSTANT(COMPOSITOR_EFFECT_CALLBACK_TYPE_PRE_TRANSPARENT);
 	BIND_ENUM_CONSTANT(COMPOSITOR_EFFECT_CALLBACK_TYPE_POST_TRANSPARENT);
+	BIND_ENUM_CONSTANT(COMPOSITOR_EFFECT_CALLBACK_TYPE_POST_TAA);
 	BIND_ENUM_CONSTANT(COMPOSITOR_EFFECT_CALLBACK_TYPE_ANY);
 
 	/* COMPOSITOR */
@@ -3696,6 +3700,18 @@ void RenderingServer::init() {
 	GLOBAL_DEF(PropertyInfo(Variant::FLOAT, "rendering/anti_aliasing/screen_space_roughness_limiter/limit", PROPERTY_HINT_RANGE, "0.01,1.0,0.01"), 0.18);
 
 	GLOBAL_DEF_RST(PropertyInfo(Variant::FLOAT, "rendering/anti_aliasing/quality/smaa_edge_detection_threshold", PROPERTY_HINT_RANGE, "0.01,0.2,0.01"), 0.05);
+
+	// LULL engine patch: Playdead-style TAA resolve (INSIDE). Read every frame by RendererRD::TAA.
+	GLOBAL_DEF(PropertyInfo(Variant::INT, "rendering/anti_aliasing/quality/taa_resolve_mode", PROPERTY_HINT_ENUM, "Godot,Playdead (INSIDE)"), 0);
+	GLOBAL_DEF(PropertyInfo(Variant::FLOAT, "rendering/anti_aliasing/quality/taa_feedback_min", PROPERTY_HINT_RANGE, "0.5,0.99,0.01"), 0.88);
+	GLOBAL_DEF(PropertyInfo(Variant::FLOAT, "rendering/anti_aliasing/quality/taa_feedback_max", PROPERTY_HINT_RANGE, "0.5,0.995,0.005"), 0.97);
+	GLOBAL_DEF(PropertyInfo(Variant::FLOAT, "rendering/anti_aliasing/quality/taa_motion_blur", PROPERTY_HINT_RANGE, "0.0,1.0,0.01"), 0.0);
+	// LULL engine patch: the rest of "Low Complexity, High Fidelity: The Rendering of INSIDE" (GDC 2016). All read every
+	// frame (scene UBO / tonemapper), so a game can tune them live.
+	GLOBAL_DEF(PropertyInfo(Variant::FLOAT, "rendering/environment/fog/max_amount", PROPERTY_HINT_RANGE, "0.0,1.0,0.01"), 1.0);
+	GLOBAL_DEF(PropertyInfo(Variant::INT, "rendering/lights_and_shadows/positional_shadow/blue_noise_kernel", PROPERTY_HINT_ENUM, "Interleaved Gradient,Blue Noise (Playdead)"), 0);
+	GLOBAL_DEF(PropertyInfo(Variant::FLOAT, "rendering/anti_aliasing/quality/normal_buffer_dither", PROPERTY_HINT_RANGE, "0.0,2.0,0.05"), 0.0);
+	GLOBAL_DEF(PropertyInfo(Variant::INT, "rendering/anti_aliasing/quality/debanding_mode", PROPERTY_HINT_ENUM, "Godot,TPDF Blue Noise (Playdead)"), 0);
 
 	{
 		String mode_hints;

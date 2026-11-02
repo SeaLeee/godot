@@ -51,6 +51,15 @@ layout(push_constant, std430) uniform Params {
 	vec2 resolution;
 	float disocclusion_threshold; // 0.1 / max(params.resolution.x, params.resolution.y
 	float disocclusion_scale;
+	// LULL engine patch (Playdead resolve, see temporal_antialiasing_playdead)
+	float mode;
+	float feedback_min;
+	float feedback_max;
+	float motion_blur;
+	float frame;
+	float pad0;
+	float pad1;
+	float pad2;
 }
 params;
 
@@ -363,6 +372,130 @@ vec3 temporal_antialiasing(uvec2 pos_group_top_left, uvec2 pos_group, uvec2 pos_
 	return color_resolved;
 }
 
+/*------------------------------------------------------------------------------
+						PLAYDEAD RESOLVE (LULL engine patch)
+  INSIDE, GDC 2016 "Temporal Reprojection Anti-Aliasing in INSIDE" (L. J. F. Pedersen),
+  https://github.com/playdeadgames/temporal (MIT):
+   * velocity of the nearest fragment in 3x3 (reversed Z: nearest = largest depth) for reprojection, so edges of
+     a moving silhouette carry their own motion instead of the background's
+   * neighbourhood min/max in YCoCg, "rounded" (average of the 3x3 and the plus-shaped 5 box), chroma box shrunk
+     to a quarter of the luma extent around the current chroma
+   * history clipped toward the neighbourhood average (not clamped)
+   * feedback from the unbiased luminance difference: large difference -> *less* history (feedback_min), stable ->
+     feedback_max. Godot's resolve does the opposite (it keeps history on large differences to fight flicker), which
+     leaves trails behind dark figures moving over bright fog
+   * a little noise on the output, so the accumulation never quantises into bands
+------------------------------------------------------------------------------*/
+
+vec3 rgb_to_ycocg(vec3 c) {
+	return vec3(c.x * 0.25 + c.y * 0.5 + c.z * 0.25, c.x * 0.5 - c.z * 0.5, -c.x * 0.25 + c.y * 0.5 - c.z * 0.25);
+}
+
+vec3 ycocg_to_rgb(vec3 c) {
+	return vec3(c.x + c.y - c.z, c.x + c.z, c.x - c.y - c.z);
+}
+
+vec3 pd_tonemap(vec3 c) {
+	return c / (1.0 + max(c.r, max(c.g, c.b)));
+}
+
+vec3 pd_untonemap(vec3 c) {
+	return c / max(1.0 - max(c.r, max(c.g, c.b)), 1e-4);
+}
+
+vec2 nearest_velocity_3x3(uvec2 group_pos, uvec2 group_top_left) {
+	float best = -1.0;
+	uvec2 best_pos = group_pos;
+	for (int i = 0; i < 9; i++) {
+		uvec2 p = group_pos + kOffsets3x3[i];
+		float d = load_depth(p);
+		if (d > best) {
+			best = d;
+			best_pos = p;
+		}
+	}
+	return imageLoad(velocity_buffer, ivec2(group_top_left + best_pos)).xy;
+}
+
+float pd_noise(vec2 p) {
+	return fract(sin(dot(p + params.frame * vec2(0.6959174, 0.3141), vec2(12.9898, 78.233))) * 43758.5453) - 0.5;
+}
+
+vec3 temporal_antialiasing_playdead(uvec2 pos_group_top_left, uvec2 pos_group, uvec2 pos_screen, vec2 uv, sampler2D tex_history) {
+	vec2 velocity = nearest_velocity_3x3(pos_group, pos_group_top_left);
+	vec2 uv_reprojected = uv + velocity;
+
+	vec3 c[9];
+	for (int i = 0; i < 9; i++) {
+		c[i] = rgb_to_ycocg(pd_tonemap(load_color(pos_group + kOffsets3x3[i])));
+	}
+	vec3 texel0 = c[4];
+	vec3 cmin = c[0];
+	vec3 cmax = c[0];
+	vec3 cavg = vec3(0.0);
+	for (int i = 0; i < 9; i++) {
+		cmin = min(cmin, c[i]);
+		cmax = max(cmax, c[i]);
+		cavg += c[i];
+	}
+	cavg /= 9.0;
+	// rounded: blend with the plus-shaped 5-tap box (indices 1, 3, 4, 5, 7)
+	vec3 cmin5 = min(c[1], min(c[3], min(c[4], min(c[5], c[7]))));
+	vec3 cmax5 = max(c[1], max(c[3], max(c[4], max(c[5], c[7]))));
+	vec3 cavg5 = (c[1] + c[3] + c[4] + c[5] + c[7]) * 0.2;
+	cmin = 0.5 * (cmin + cmin5);
+	cmax = 0.5 * (cmax + cmax5);
+	cavg = 0.5 * (cavg + cavg5);
+	// shrink chroma
+	vec2 chroma_extent = vec2(0.25 * 0.5 * (cmax.x - cmin.x));
+	vec2 chroma_center = texel0.yz;
+	cmin.yz = chroma_center - chroma_extent;
+	cmax.yz = chroma_center + chroma_extent;
+	cavg.yz = chroma_center;
+
+	vec3 texel1 = rgb_to_ycocg(pd_tonemap(sample_catmull_rom_9(tex_history, uv_reprojected, params.resolution)));
+	texel1 = clip_aabb(cmin, cmax, clamp(cavg, cmin, cmax), texel1);
+
+	float lum0 = texel0.x;
+	float lum1 = texel1.x;
+	float unbiased_diff = abs(lum0 - lum1) / max(lum0, max(lum1, 0.2));
+	float unbiased_weight = 1.0 - unbiased_diff;
+	float k_feedback = mix(params.feedback_min, params.feedback_max, unbiased_weight * unbiased_weight);
+
+	// off screen or disoccluded: no history
+	bool off = any(lessThan(uv_reprojected, vec2(0.0))) || any(greaterThan(uv_reprojected, vec2(1.0)));
+	float disocclusion = get_factor_disocclusion(uv_reprojected, velocity);
+	k_feedback *= (off ? 0.0 : 1.0) * (1.0 - disocclusion);
+
+	vec3 result = mix(texel0, texel1, k_feedback);
+	result = pd_untonemap(ycocg_to_rgb(result));
+	result += vec3(pd_noise(vec2(pos_screen)), pd_noise(vec2(pos_screen) + 17.0), pd_noise(vec2(pos_screen) + 41.0)) * (1.0 / 510.0);
+	return clamp(result, FLT_MIN, FLT_MAX);
+}
+
+// Playdead's velocity motion blur, screen-only (mode 2): blur the current frame along the (nearest) velocity and
+// blend it with the temporal result by how much the motion can be trusted (2..15 texels/frame).
+vec3 motion_blur_playdead(uvec2 pos_group_top_left, uvec2 pos_group, uvec2 pos_screen, vec2 uv, sampler2D tex_temporal) {
+	vec3 temporal = textureLod(tex_temporal, uv, 0.0).rgb;
+	vec2 velocity = nearest_velocity_3x3(pos_group, pos_group_top_left) * params.motion_blur;
+	vec2 vel_texels = velocity * params.resolution;
+	float vel_mag = length(vel_texels);
+	if (vel_mag < 0.5) {
+		return temporal;
+	}
+	float trust = 1.0 - clamp(vel_mag - 2.0, 0.0, 13.0) / 13.0;
+	const int taps = 3;
+	vec2 vtap = -0.5 * vel_texels / float(taps);
+	vec2 pos0 = vec2(pos_screen) + 0.5 + vtap * (0.5 * pd_noise(vec2(pos_screen)));
+	vec3 accu = vec3(0.0);
+	for (int i = -taps; i <= taps; i++) {
+		ivec2 p = clamp(ivec2(pos0 + float(i) * vtap), ivec2(0), ivec2(params.resolution) - 1);
+		accu += imageLoad(color_buffer, p).rgb;
+	}
+	accu /= float(2 * taps + 1);
+	return mix(accu, temporal, trust);
+}
+
 void main() {
 	populate_group_shared_memory(gl_WorkGroupID.xy, gl_LocalInvocationIndex);
 
@@ -376,6 +509,13 @@ void main() {
 	const uvec2 pos_screen = gl_GlobalInvocationID.xy;
 	const vec2 uv = (gl_GlobalInvocationID.xy + 0.5f) / params.resolution;
 
-	vec3 result = temporal_antialiasing(pos_group_top_left, pos_group, pos_screen, uv, history_buffer);
+	vec3 result;
+	if (params.mode > 1.5) {
+		result = motion_blur_playdead(pos_group_top_left, pos_group, pos_screen, uv, history_buffer);
+	} else if (params.mode > 0.5) {
+		result = temporal_antialiasing_playdead(pos_group_top_left, pos_group, pos_screen, uv, history_buffer);
+	} else {
+		result = temporal_antialiasing(pos_group_top_left, pos_group, pos_screen, uv, history_buffer);
+	}
 	imageStore(output_buffer, ivec2(gl_GlobalInvocationID.xy), vec4(result, 1.0));
 }

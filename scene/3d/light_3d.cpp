@@ -395,6 +395,13 @@ void Light3D::_bind_methods() {
 	ADD_PROPERTYI(PropertyInfo(Variant::FLOAT, "light_angular_distance", PROPERTY_HINT_RANGE, "0,90,0.01,degrees"), "set_param", "get_param", PARAM_SIZE);
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "light_negative"), "set_negative", "is_negative");
 	ADD_PROPERTYI(PropertyInfo(Variant::FLOAT, "light_specular", PROPERTY_HINT_RANGE, "0,16,0.001,or_greater"), "set_param", "get_param", PARAM_SPECULAR);
+	// LULL (Playdead "custom lights", GDC 2016): bounce lights that wrap around a surface, fade to ambient, and take any
+	// ellipsoid shape from the node's scale (a pill along a corridor, a squashed disc under a window).
+	ADD_PROPERTYI(PropertyInfo(Variant::FLOAT, "light_wrap", PROPERTY_HINT_RANGE, "0,1,0.01"), "set_param", "get_param", PARAM_LULL_WRAP);
+	ADD_PROPERTYI(PropertyInfo(Variant::FLOAT, "light_normal_fade", PROPERTY_HINT_RANGE, "0,1,0.01"), "set_param", "get_param", PARAM_LULL_NORMAL_FADE);
+	ClassDB::bind_method(D_METHOD("set_ellipsoid", "enabled"), &Light3D::set_ellipsoid);
+	ClassDB::bind_method(D_METHOD("is_ellipsoid"), &Light3D::is_ellipsoid);
+	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "light_ellipsoid"), "set_ellipsoid", "is_ellipsoid");
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "light_bake_mode", PROPERTY_HINT_ENUM, "Disabled,Static,Dynamic"), "set_bake_mode", "get_bake_mode");
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "light_cull_mask", PROPERTY_HINT_LAYERS_3D_RENDER), "set_cull_mask", "get_cull_mask");
 
@@ -440,6 +447,8 @@ void Light3D::_bind_methods() {
 	BIND_ENUM_CONSTANT(PARAM_SHADOW_BLUR);
 	BIND_ENUM_CONSTANT(PARAM_TRANSMITTANCE_BIAS);
 	BIND_ENUM_CONSTANT(PARAM_INTENSITY);
+	BIND_ENUM_CONSTANT(PARAM_LULL_WRAP);
+	BIND_ENUM_CONSTANT(PARAM_LULL_NORMAL_FADE);
 	BIND_ENUM_CONSTANT(PARAM_MAX);
 
 	BIND_ENUM_CONSTANT(BAKE_DISABLED);
@@ -493,8 +502,20 @@ Light3D::Light3D(RenderingServer::LightType p_type) {
 	set_param(PARAM_SHADOW_FADE_START, 1);
 	// For OmniLight3D and SpotLight3D, specified in Lumens.
 	set_param(PARAM_INTENSITY, 1000.0);
+	set_param(PARAM_LULL_WRAP, 0.0);
+	set_param(PARAM_LULL_NORMAL_FADE, 0.0);
 	set_temperature(6500.0); // Nearly white.
 	set_disable_scale(true);
+}
+
+void Light3D::set_ellipsoid(bool p_enabled) {
+	ellipsoid = p_enabled;
+	// the scale shapes an ellipsoid light: let it through to the rendering server
+	set_disable_scale(!p_enabled);
+}
+
+bool Light3D::is_ellipsoid() const {
+	return ellipsoid;
 }
 
 Light3D::Light3D() {

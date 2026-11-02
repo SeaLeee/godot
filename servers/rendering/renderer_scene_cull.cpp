@@ -144,6 +144,38 @@ void RendererSceneCull::camera_set_use_vertical_aspect(RID p_camera, bool p_enab
 	camera->vaspect = p_enable;
 }
 
+void RendererSceneCull::camera_set_oblique_plane(RID p_camera, const Plane &p_world_plane, bool p_enable) {
+	Camera *camera = camera_owner.get_or_null(p_camera);
+	ERR_FAIL_NULL(camera);
+	camera->oblique = p_enable;
+	camera->oblique_plane = p_world_plane;
+}
+
+// LULL: Eric Lengyel, "Oblique View Frustum Depth Projection and Clipping" (2005). Replaces the near plane of an
+// OpenGL-style projection with an arbitrary view-space plane, so a mirrored reflection camera clips exactly at the
+// water surface (nothing below it ends up in the reflection) without a user clip plane in every shader.
+static void _lull_apply_oblique(Projection &r_proj, const Transform3D &p_cam_xform, const Plane &p_world_plane) {
+	Plane pv = p_cam_xform.affine_inverse().xform(p_world_plane);
+	Vector4 C(pv.normal.x, pv.normal.y, pv.normal.z, -pv.d);
+	if (C.w > 0.0) {
+		C = -C; // the camera (view-space origin) must be on the negative side
+	}
+	Vector4 q;
+	q.x = (SIGN(C.x) + r_proj.columns[2][0]) / r_proj.columns[0][0];
+	q.y = (SIGN(C.y) + r_proj.columns[2][1]) / r_proj.columns[1][1];
+	q.z = -1.0;
+	q.w = (1.0 + r_proj.columns[2][2]) / r_proj.columns[3][2];
+	real_t dq = C.dot(q);
+	if (Math::abs(dq) < 1e-8) {
+		return;
+	}
+	Vector4 c = C * (2.0 / dq);
+	r_proj.columns[0][2] = c.x - r_proj.columns[0][3];
+	r_proj.columns[1][2] = c.y - r_proj.columns[1][3];
+	r_proj.columns[2][2] = c.z - r_proj.columns[2][3];
+	r_proj.columns[3][2] = c.w - r_proj.columns[3][3];
+}
+
 bool RendererSceneCull::is_camera(RID p_camera) const {
 	return camera_owner.owns(p_camera);
 }
@@ -2653,6 +2685,10 @@ void RendererSceneCull::render_camera(const Ref<RenderSceneBuffers> &p_render_bu
 						camera->vaspect);
 				is_frustum = true;
 			} break;
+		}
+
+		if (camera->oblique && !is_orthogonal) {
+			_lull_apply_oblique(projection, transform, camera->oblique_plane);
 		}
 
 		camera_data.set_camera(transform, projection, is_orthogonal, is_frustum, vaspect, jitter, taa_frame_count, camera->visible_layers);

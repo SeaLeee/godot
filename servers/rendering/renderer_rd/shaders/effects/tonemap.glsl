@@ -68,6 +68,7 @@ layout(set = 3, binding = 0) uniform sampler3D source_color_correction;
 #define FLAG_USE_8_BIT_DEBANDING (1 << 5)
 #define FLAG_USE_10_BIT_DEBANDING (1 << 6)
 #define FLAG_CONVERT_TO_SRGB (1 << 7)
+#define FLAG_USE_TPDF_DEBANDING (1 << 8)
 
 layout(push_constant, std430) uniform Params {
 	vec3 bcs;
@@ -831,6 +832,31 @@ vec3 screen_space_dither(vec2 frag_coord, float bit_alignment_diviser) {
 	return (dither.rgb - 0.5) / bit_alignment_diviser;
 }
 
+// LULL (Playdead, "Banding in Games" / GDC 2016 p53-66): uniform noise removes the bands but its variance follows the
+// signal (bands of *less noise* appear where values cross bit borders). Triangular-PDF noise spanning 2 LSB has an
+// error independent of the signal; making each of its two uniform terms blue (high-passed) keeps it perceptually
+// quiet. Per channel decorrelated.
+float lull_tpdf_white(uvec2 q, uint k) {
+	uint h = (q.x + k * 911u) * 1597334677u ^ (q.y + k * 373u) * 3812015801u;
+	h = (h ^ (h >> 16u)) * 2246822519u;
+	h = (h ^ (h >> 13u)) * 3266489917u;
+	h ^= h >> 16u;
+	return float(h) * (1.0 / 4294967296.0);
+}
+
+float lull_blue(uvec2 q, uint k) {
+	float c = lull_tpdf_white(q, k);
+	float n = lull_tpdf_white(q + uvec2(1u, 0u), k) + lull_tpdf_white(q - uvec2(1u, 0u), k) + lull_tpdf_white(q + uvec2(0u, 1u), k) + lull_tpdf_white(q - uvec2(0u, 1u), k);
+	return clamp((c - 0.25 * n) * 0.5 + 0.5 * c + 0.25, 0.0, 1.0);
+}
+
+vec3 tpdf_blue_dither(vec2 frag_coord, float bit_alignment_diviser) {
+	uvec2 q = uvec2(frag_coord) + uvec2(4096u);
+	vec3 a = vec3(lull_blue(q, 1u), lull_blue(q, 2u), lull_blue(q, 3u));
+	vec3 b = vec3(lull_blue(q, 4u), lull_blue(q, 5u), lull_blue(q, 6u));
+	return (a + b - 1.0) / bit_alignment_diviser;   // triangular in [-1, 1] LSB
+}
+
 void main() {
 #ifdef SUBPASS
 	// SUBPASS and USE_MULTIVIEW can be combined but in that case we're already reading from the correct layer
@@ -918,7 +944,9 @@ void main() {
 	// Debanding should be done at the end of tonemapping, but before writing to the LDR buffer.
 	// Otherwise, we're adding noise to an already-quantized image.
 
-	if (bool(params.flags & FLAG_USE_8_BIT_DEBANDING)) {
+	if (bool(params.flags & FLAG_USE_TPDF_DEBANDING)) {
+		color.rgb += tpdf_blue_dither(gl_FragCoord.xy, bool(params.flags & FLAG_USE_10_BIT_DEBANDING) ? 1023.0 : 255.0);
+	} else if (bool(params.flags & FLAG_USE_8_BIT_DEBANDING)) {
 		// Divide by 255 to align to 8-bit quantization.
 		color.rgb += screen_space_dither(gl_FragCoord.xy, 255.0);
 	} else if (bool(params.flags & FLAG_USE_10_BIT_DEBANDING)) {

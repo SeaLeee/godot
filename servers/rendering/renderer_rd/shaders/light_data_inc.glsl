@@ -28,6 +28,10 @@ struct LightData { //this structure needs to be as packed as possible
 	float volumetric_fog_energy;
 	uint bake_mode;
 	vec4 projector_rect; //projector rect in srgb decal atlas
+	vec4 lull_shape; // LULL: x = wrap, y = normal fade, z = ellipsoid omni
+	vec4 lull_ell_x; // LULL: rows of the inverse scaled light basis (view space)
+	vec4 lull_ell_y;
+	vec4 lull_ell_z;
 };
 
 #define REFLECTION_AMBIENT_DISABLED 0

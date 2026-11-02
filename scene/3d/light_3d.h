@@ -58,6 +58,8 @@ public:
 		PARAM_SHADOW_BLUR = RS::LIGHT_PARAM_SHADOW_BLUR,
 		PARAM_TRANSMITTANCE_BIAS = RS::LIGHT_PARAM_TRANSMITTANCE_BIAS,
 		PARAM_INTENSITY = RS::LIGHT_PARAM_INTENSITY,
+		PARAM_LULL_WRAP = RS::LIGHT_PARAM_LULL_WRAP,
+		PARAM_LULL_NORMAL_FADE = RS::LIGHT_PARAM_LULL_NORMAL_FADE,
 		PARAM_MAX = RS::LIGHT_PARAM_MAX
 	};
 
@@ -86,6 +88,7 @@ private:
 	Ref<Texture2D> projector;
 	Color correlated_color = Color(1.0, 1.0, 1.0);
 	float temperature = 6500.0;
+	bool ellipsoid = false; // LULL: the node's scale shapes the light (omni)
 
 	// bind helpers
 
@@ -114,6 +117,9 @@ public:
 
 	void set_negative(bool p_enable);
 	bool is_negative() const;
+
+	void set_ellipsoid(bool p_enabled);
+	bool is_ellipsoid() const;
 
 	void set_enable_distance_fade(bool p_enable);
 	bool is_distance_fade_enabled() const;

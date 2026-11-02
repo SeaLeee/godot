@@ -83,6 +83,8 @@ public:
 		Vector2 offset;
 		uint32_t visible_layers;
 		bool vaspect;
+		bool oblique = false; // LULL: clip at oblique_plane (world space) instead of the near plane
+		Plane oblique_plane;
 		RID env;
 		RID attributes;
 		RID compositor;
@@ -115,6 +117,7 @@ public:
 	virtual void camera_set_camera_attributes(RID p_camera, RID p_attributes);
 	virtual void camera_set_compositor(RID p_camera, RID p_compositor);
 	virtual void camera_set_use_vertical_aspect(RID p_camera, bool p_enable);
+	virtual void camera_set_oblique_plane(RID p_camera, const Plane &p_world_plane, bool p_enable);
 	virtual bool is_camera(RID p_camera) const;
 
 	/* OCCLUDER API */
